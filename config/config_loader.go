@@ -23,6 +23,9 @@ type Config struct {
 	OpenAITranscribeModel string   `yaml:"openai_transcribe_model"`
 	AppTimezone           string   `yaml:"app_timezone"`
 	CORSOrigins           []string `yaml:"cors_origins"`
+	SupabaseURL           string   `yaml:"supabase_url"`
+	SupabaseServiceKey    string   `yaml:"supabase_service_key"`
+	SupabaseBucket        string   `yaml:"supabase_bucket"`
 }
 
 func New(path string) (*Config, error) {
@@ -82,6 +85,9 @@ func (c *Config) applyEnv() {
 	setFromEnv(&c.OpenAIEvalModel, "OPENAI_EVAL_MODEL")
 	setFromEnv(&c.OpenAITranscribeModel, "OPENAI_TRANSCRIBE_MODEL")
 	setFromEnv(&c.AppTimezone, "APP_TIMEZONE")
+	setFromEnv(&c.SupabaseURL, "SUPABASE_URL")
+	setFromEnv(&c.SupabaseServiceKey, "SUPABASE_SERVICE_KEY")
+	setFromEnv(&c.SupabaseBucket, "SUPABASE_BUCKET")
 	if v := os.Getenv("CORS_ORIGINS"); v != "" {
 		c.CORSOrigins = nil
 		for _, o := range strings.Split(v, ",") {
@@ -109,7 +115,10 @@ func (c *Config) applyDefaults() {
 		c.AppTimezone = "Asia/Jakarta"
 	}
 	if len(c.CORSOrigins) == 0 {
-		c.CORSOrigins = []string{"https://docs.hearable.nighttealabs.tech", "http://localhost:3000"}
+		c.CORSOrigins = []string{"https://docs.hearable.nighttealabs.tech", "http://localhost:3000", "http://localhost:5173"}
+	}
+	if c.SupabaseBucket == "" {
+		c.SupabaseBucket = "audio"
 	}
 }
 
@@ -123,6 +132,12 @@ func (c *Config) validate() error {
 	}
 	if c.OpenAIAPIKey == "" {
 		missing = append(missing, "openai_api_key / OPENAI_API_KEY")
+	}
+	if c.SupabaseURL == "" {
+		missing = append(missing, "supabase_url / SUPABASE_URL")
+	}
+	if c.SupabaseServiceKey == "" {
+		missing = append(missing, "supabase_service_key / SUPABASE_SERVICE_KEY")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required config: %s", strings.Join(missing, ", "))

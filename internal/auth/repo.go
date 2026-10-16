@@ -20,9 +20,9 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
-func (r *Repository) CreateUser(ctx context.Context, name, email, passwordHash string) (User, error) {
+func (r *Repository) CreateUser(ctx context.Context, name, email, passwordHash, role string) (User, error) {
 	var u User
-	err := r.db.QueryRowContext(ctx, queryInsertUser, name, email, passwordHash).
+	err := r.db.QueryRowContext(ctx, queryInsertUser, name, email, passwordHash, role).
 		Scan(&u.ID, &u.Name, &u.Email, &u.Role, &u.CreatedAt)
 	if err != nil {
 		var pgErr *pgconn.PgError

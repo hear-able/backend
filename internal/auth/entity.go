@@ -5,7 +5,10 @@ import (
 	"time"
 )
 
-const RoleUser = "user"
+const (
+	RoleUser      = "user"
+	RoleVolunteer = "volunteer"
+)
 
 var (
 	ErrEmailTaken          = errors.New("email already registered")
@@ -29,6 +32,9 @@ type RegisterRequest struct {
 	Email       string `json:"email"`
 	Password    string `json:"password"`
 	AcceptTerms bool   `json:"accept_terms"`
+	// Role is optional; empty means a regular user. Volunteers register from
+	// the web app to contribute modules.
+	Role string `json:"role"`
 }
 
 type LoginRequest struct {

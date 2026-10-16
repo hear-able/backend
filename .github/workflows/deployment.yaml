@@ -56,6 +56,8 @@ jobs:
               -e JWT_SECRET='${{ secrets.JWT_SECRET }}' \
               -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
               -e APP_TIMEZONE=Asia/Jakarta \
+              -e SUPABASE_URL='${{ secrets.SUPABASE_URL }}' \
+              -e SUPABASE_SERVICE_KEY='${{ secrets.SUPABASE_SERVICE_KEY }}' \
               $IMAGE_ID:latest
           EOF
 

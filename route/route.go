@@ -8,8 +8,10 @@ import (
 	"hearable/backend/internal/listening"
 	"hearable/backend/internal/progress"
 	"hearable/backend/internal/speaking"
+	"hearable/backend/internal/volunteer"
 	"hearable/backend/package/jsonresponder"
 	"hearable/backend/package/middleware"
+	"hearable/backend/package/storage"
 	"hearable/backend/package/token"
 	"net/http"
 
@@ -51,6 +53,12 @@ func NewRouter(cfg *config.Config, db *sql.DB, logger *slog.Logger) http.Handler
 	listeningHandler := listening.NewHandler(listening.NewService(listening.NewRepository(db), aiClient), jr)
 	speakingHandler := speaking.NewHandler(speaking.NewService(speaking.NewRepository(db), aiClient), jr)
 	progressHandler := progress.NewHandler(progress.NewService(progress.NewRepository(db), cfg.Location()), jr)
+	storageClient := storage.NewSupabase(storage.Config{
+		URL:        cfg.SupabaseURL,
+		ServiceKey: cfg.SupabaseServiceKey,
+		Bucket:     cfg.SupabaseBucket,
+	})
+	volunteerHandler := volunteer.NewHandler(volunteer.NewService(volunteer.NewRepository(db), aiClient, storageClient, logger), jr)
 
 	r := chi.NewRouter()
 
@@ -109,6 +117,16 @@ func NewRouter(cfg *config.Config, db *sql.DB, logger *slog.Logger) http.Handler
 
 			r.With(middleware.MaxBodyBytes(audioBodyLimit), aiLimit).
 				Post("/speaking/sessions/{sessionID}/attempts", speakingHandler.SubmitAttempt)
+
+			r.Route("/volunteer", func(r chi.Router) {
+				r.Use(middleware.RequireRole(jr, auth.RoleVolunteer), aiLimit)
+				r.With(middleware.MaxBodyBytes(audioBodyLimit)).
+					Post("/listening/transcriptions", volunteerHandler.Transcribe)
+				r.With(middleware.MaxBodyBytes(volunteer.MaxListeningBodyBytes)).
+					Post("/listening/modules", volunteerHandler.CreateListeningModule)
+				r.With(middleware.MaxBodyBytes(jsonBodyLimit)).
+					Post("/speaking/modules", volunteerHandler.CreateSpeakingModule)
+			})
 		})
 	})
 

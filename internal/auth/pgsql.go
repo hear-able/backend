@@ -2,8 +2,8 @@ package auth
 
 const (
 	queryInsertUser = `
-		INSERT INTO users (name, email, password_hash, terms_accepted_at)
-		VALUES ($1, $2, $3, now())
+		INSERT INTO users (name, email, password_hash, role, terms_accepted_at)
+		VALUES ($1, $2, $3, $4, now())
 		RETURNING id, name, email, role, created_at`
 
 	queryGetUserByEmail = `

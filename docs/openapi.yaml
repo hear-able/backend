@@ -23,6 +23,10 @@ info:
       complete it was (`kelengkapan`). It does **not** measure pronunciation directly.
 
     **Difficulty levels:** 1 Pemula, 2 Dasar, 3 Menengah, 4 Mahir.
+
+    **Volunteers.** Accounts registered with `role: volunteer` can contribute listening and speaking
+    modules under `/v1/volunteer/*`. AI assesses the module difficulty on submit, and the module is
+    published immediately. Other roles get `403 forbidden`.
 servers:
   - url: https://api.hearable.nighttealabs.tech
     description: API server for Hearable
@@ -34,6 +38,8 @@ tags:
   - name: Listening
   - name: Speaking
   - name: Progress
+  - name: Volunteer
+    description: Content contribution, requires the `volunteer` role
   - name: System
 
 security:
@@ -492,6 +498,137 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /v1/volunteer/listening/transcriptions:
+    post:
+      operationId: transcribeVolunteerAudio
+      tags: [Volunteer]
+      summary: Transcribe a listening question's audio and suggest its instruction
+      description: |
+        Runs speech-to-text on the uploaded audio and asks the AI to draft the question instruction
+        (`prompt`). **Nothing is stored.** The volunteer reviews and edits both values, then sends them
+        with the final module submit.
+
+        - Maximum size is 10 MB. Accepted formats are mp3, m4a/mp4, wav, ogg, webm and flac.
+        - If the AI cannot draft an instruction, a default instruction is returned.
+        - Rate limited to 20 requests per minute per user.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [audio]
+              properties:
+                audio: { type: string, format: binary }
+      responses:
+        '200':
+          description: Transcription and suggested instruction
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VolunteerTranscription' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: Audio larger than 10 MB
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Unsupported audio format
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/Upstream' }
+
+  /v1/volunteer/listening/modules:
+    post:
+      operationId: createVolunteerListeningModule
+      tags: [Volunteer]
+      summary: Create a listening module (1 to 10 questions)
+      description: |
+        Send `multipart/form-data` with a `payload` field containing the JSON
+        `CreateListeningModuleRequest`, plus one audio file per question named `audio_0`, `audio_1`, …
+        in question order.
+
+        Order of operations:
+        1. The input is validated.
+        2. AI assesses the module difficulty (1–4). The volunteer cannot set it.
+        3. The audio files are uploaded to storage.
+        4. The module is inserted in one transaction.
+
+        If any step fails, nothing is kept. `estimated_minutes` is `ceil(questions × 1.5)`.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [payload, audio_0]
+              properties:
+                payload:
+                  type: string
+                  description: JSON-encoded `CreateListeningModuleRequest`
+                audio_0: { type: string, format: binary }
+                audio_1: { type: string, format: binary }
+            encoding:
+              payload:
+                contentType: application/json
+      responses:
+        '201':
+          description: Module created and published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VolunteerModule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: An audio file is larger than 10 MB
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Unsupported audio format
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/Upstream' }
+
+  /v1/volunteer/speaking/modules:
+    post:
+      operationId: createVolunteerSpeakingModule
+      tags: [Volunteer]
+      summary: Create a speaking module (1 to 10 sentences)
+      description: |
+        Syllable guides are generated automatically from each sentence, with the last syllable of
+        each word stressed. AI assesses the difficulty (1–4). `estimated_minutes` equals the number
+        of sentences.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateSpeakingModuleRequest' }
+      responses:
+        '201':
+          description: Module created and published
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VolunteerModule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/Upstream' }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -529,6 +666,11 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     Conflict:
       description: Invalid state, e.g. the session is completed or the item was already answered
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: The account's role cannot use this endpoint
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -580,6 +722,11 @@ components:
         accept_terms:
           type: boolean
           description: Must be true (Terms of Service and Privacy Policy consent).
+        role:
+          type: string
+          enum: [user, volunteer]
+          default: user
+          description: Use `volunteer` for content contributors (web app).
 
     LoginRequest:
       type: object
@@ -874,3 +1021,83 @@ components:
           type: array
           items: { $ref: '#/components/schemas/HistoryItem' }
         next_cursor: { type: string, nullable: true }
+
+    VolunteerTranscription:
+      type: object
+      required: [transcription, prompt]
+      properties:
+        transcription: { type: string, example: 'Selamat pagi, apa kabar?' }
+        prompt: { type: string, example: Dengarkan audio berikut dan pilih jawaban yang tepat. }
+
+    VolunteerOption:
+      type: object
+      required: [text, is_correct]
+      additionalProperties: false
+      properties:
+        text: { type: string, maxLength: 300 }
+        is_correct: { type: boolean }
+
+    VolunteerListeningQuestion:
+      type: object
+      required: [prompt, transcription, type]
+      additionalProperties: false
+      properties:
+        prompt: { type: string, maxLength: 300, description: Question instruction shown to the learner }
+        transcription: { type: string, maxLength: 2000, description: What is said in the audio. Stored as the audio description. }
+        type: { type: string, enum: [choice, input] }
+        options:
+          type: array
+          minItems: 2
+          maxItems: 4
+          description: Required for `choice`, with exactly one `is_correct`.
+          items: { $ref: '#/components/schemas/VolunteerOption' }
+        answer_explanation: { type: string, maxLength: 2000, description: 'Optional, for `choice`' }
+        expected_answer: { type: string, maxLength: 2000, description: Required for `input` }
+
+    CreateListeningModuleRequest:
+      type: object
+      required: [title, label, questions]
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 120 }
+        label: { type: string, maxLength: 60 }
+        description: { type: string, maxLength: 1000 }
+        questions:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items: { $ref: '#/components/schemas/VolunteerListeningQuestion' }
+
+    CreateSpeakingModuleRequest:
+      type: object
+      required: [title, label, sentences]
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 120 }
+        label: { type: string, maxLength: 60 }
+        description: { type: string, maxLength: 1000 }
+        sentences:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [text]
+            additionalProperties: false
+            properties:
+              text: { type: string, maxLength: 300, example: Selamat Pagi }
+              description: { type: string, maxLength: 1000 }
+
+    VolunteerModule:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [listening, speaking] }
+        label: { type: string }
+        title: { type: string }
+        description: { type: string }
+        difficulty: { type: integer, minimum: 1, maximum: 4 }
+        difficulty_label: { type: string, example: Dasar }
+        difficulty_explanation: { type: string, description: The AI's reason for the level. Not stored. }
+        estimated_minutes: { type: integer }
+        item_count: { type: integer, description: Number of questions or sentences }

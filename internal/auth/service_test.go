@@ -24,13 +24,13 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{users: map[string]User{}, tokens: map[string][]byte{}}
 }
 
-func (f *fakeRepo) CreateUser(_ context.Context, name, email, hash string) (User, error) {
+func (f *fakeRepo) CreateUser(_ context.Context, name, email, hash, role string) (User, error) {
 	for _, u := range f.users {
 		if u.Email == email {
 			return User{}, ErrEmailTaken
 		}
 	}
-	u := User{ID: "aaaaaaaa-0000-0000-0000-00000000000" + string(rune('1'+len(f.users))), Name: name, Email: email, Role: RoleUser, PasswordHash: hash}
+	u := User{ID: "aaaaaaaa-0000-0000-0000-00000000000" + string(rune('1'+len(f.users))), Name: name, Email: email, Role: role, PasswordHash: hash}
 	f.users[u.ID] = u
 	return u, nil
 }
@@ -125,6 +125,7 @@ func TestRegisterValidation(t *testing.T) {
 		"short pw":     func(r *RegisterRequest) { r.Password = "1234567" },
 		"long pw":      func(r *RegisterRequest) { r.Password = string(make([]byte, 73)) },
 		"no terms":     func(r *RegisterRequest) { r.AcceptTerms = false },
+		"bad role":     func(r *RegisterRequest) { r.Role = "admin" },
 	}
 	for name, mutate := range mutations {
 		t.Run(name, func(t *testing.T) {
@@ -133,6 +134,21 @@ func TestRegisterValidation(t *testing.T) {
 			_, err := newTestService(newFakeRepo()).Register(context.Background(), req)
 			wantStatus(t, err, http.StatusUnprocessableEntity)
 		})
+	}
+}
+
+func TestRegisterRole(t *testing.T) {
+	cases := map[string]string{"": RoleUser, "user": RoleUser, "volunteer": RoleVolunteer}
+	for in, want := range cases {
+		req := validRegister()
+		req.Role = in
+		resp, err := newTestService(newFakeRepo()).Register(context.Background(), req)
+		if err != nil {
+			t.Fatalf("role %q: %v", in, err)
+		}
+		if resp.User.Role != want {
+			t.Errorf("role %q: got %q, want %q", in, resp.User.Role, want)
+		}
 	}
 }
 

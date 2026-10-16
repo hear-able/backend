@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"hearable/backend/package/audio"
 	apperrors "hearable/backend/package/errors"
 	"hearable/backend/package/jsonresponder"
 	"hearable/backend/package/middleware"
@@ -156,13 +157,13 @@ func parseAttempt(r *http.Request) (AttemptInput, error) {
 	if len(data) == 0 {
 		return AttemptInput{}, apperrors.Unprocessable("Berkas audio kosong.")
 	}
-	ext := detectAudio(data)
-	if ext == "" {
+	format, ok := audio.Detect(data)
+	if !ok {
 		return AttemptInput{}, apperrors.New(http.StatusUnsupportedMediaType, "unsupported_media_type",
 			"Format audio tidak didukung. Gunakan webm, ogg, m4a/mp4, wav, mp3, atau flac.")
 	}
 	in.Audio = data
-	in.Filename = "recording." + ext
+	in.Filename = "recording." + format.Ext
 	return in, nil
 }
 

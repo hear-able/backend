@@ -24,7 +24,7 @@ const (
 )
 
 type repository interface {
-	CreateUser(ctx context.Context, name, email, passwordHash string) (User, error)
+	CreateUser(ctx context.Context, name, email, passwordHash, role string) (User, error)
 	GetUserByEmail(ctx context.Context, email string) (User, error)
 	GetUserByID(ctx context.Context, id string) (User, error)
 	InsertRefreshToken(ctx context.Context, userID string, tokenHash []byte, expiresAt time.Time) error
@@ -68,8 +68,14 @@ func newService(repo repository, tokens accessTokenIssuer, refreshTTL time.Durat
 func (s *Service) Register(ctx context.Context, req RegisterRequest) (AuthResponse, error) {
 	name := strings.TrimSpace(req.Name)
 	email := normalizeEmail(req.Email)
+	role := strings.TrimSpace(req.Role)
+	if role == "" {
+		role = RoleUser
+	}
 
 	switch {
+	case role != RoleUser && role != RoleVolunteer:
+		return AuthResponse{}, apperrors.Unprocessable("role harus bernilai user atau volunteer.")
 	case name == "":
 		return AuthResponse{}, apperrors.Unprocessable("Nama panggilan wajib diisi.")
 	case utf8.RuneCountInString(name) > maxNameLength:
@@ -89,7 +95,7 @@ func (s *Service) Register(ctx context.Context, req RegisterRequest) (AuthRespon
 		return AuthResponse{}, fmt.Errorf("hash password: %w", err)
 	}
 
-	user, err := s.repo.CreateUser(ctx, name, email, string(hash))
+	user, err := s.repo.CreateUser(ctx, name, email, string(hash), role)
 	if errors.Is(err, ErrEmailTaken) {
 		return AuthResponse{}, apperrors.Conflict("Email sudah terdaftar.")
 	}
