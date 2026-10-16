@@ -775,7 +775,6 @@ components:
         syllables:
           type: array
           items: { $ref: '#/components/schemas/Syllable' }
-        example_audio_url: { type: string, format: uri, nullable: true }
         position: { type: integer }
 
     SpeakingAttempt:

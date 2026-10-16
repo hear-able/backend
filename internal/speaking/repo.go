@@ -60,15 +60,11 @@ func (r *Repository) ListSentences(ctx context.Context, moduleID string) ([]Sent
 		var (
 			s         Sentence
 			syllables []byte
-			audioURL  sql.NullString
 		)
-		if err := rows.Scan(&s.ID, &s.Text, &syllables, &audioURL, &s.Position); err != nil {
+		if err := rows.Scan(&s.ID, &s.Text, &syllables, &s.Position); err != nil {
 			return nil, fmt.Errorf("scan sentence: %w", err)
 		}
 		s.Syllables = json.RawMessage(syllables)
-		if audioURL.Valid {
-			s.ExampleAudioURL = &audioURL.String
-		}
 		sentences = append(sentences, s)
 	}
 	return sentences, rows.Err()

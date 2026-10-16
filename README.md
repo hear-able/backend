@@ -57,12 +57,14 @@ Create a migration: `make migrate-create name=<migration_name>`
 ## Content and audio files
 
 `000004_seed_content` adds 16 Indonesian demo modules: 2 listening and 2 speaking modules for each
-of the 4 levels. The audio URLs are placeholders that point to a public Supabase Storage bucket:
+of the 4 levels. Listening audio URLs are placeholders that point to a public Supabase Storage bucket:
 
 ```
 https://YOUR-PROJECT.supabase.co/storage/v1/object/public/hearable-audio/listening/<name>.mp3
-https://YOUR-PROJECT.supabase.co/storage/v1/object/public/hearable-audio/speaking/<module>-<n>.mp3
 ```
+
+Speaking sentences have no audio: the mobile app reads `text` aloud with on-device text-to-speech
+(`000005_drop_sentence_audio` removes `sentences.example_audio_url`).
 
 To use real audio:
 
@@ -72,7 +74,6 @@ To use real audio:
 
 ```sql
 UPDATE audios    SET url = replace(url, 'https://YOUR-PROJECT.supabase.co', 'https://<ref>.supabase.co');
-UPDATE sentences SET example_audio_url = replace(example_audio_url, 'https://YOUR-PROJECT.supabase.co', 'https://<ref>.supabase.co');
 ```
 
 `audios.description` describes what each clip should contain.

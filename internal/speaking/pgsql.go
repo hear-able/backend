@@ -17,7 +17,7 @@ const (
 		WHERE m.id = $1`
 
 	queryListSentences = `
-		SELECT s.id, s.text, s.syllables, s.example_audio_url, sms.position
+		SELECT s.id, s.text, s.syllables, sms.position
 		FROM speaking_module_sentences sms
 		JOIN sentences s ON s.id = sms.sentence_id
 		WHERE sms.module_id = $1

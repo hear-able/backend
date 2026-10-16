@@ -36,11 +36,10 @@ type Module struct {
 }
 
 type Sentence struct {
-	ID              string          `json:"id"`
-	Text            string          `json:"text"`
-	Syllables       json.RawMessage `json:"syllables"`
-	ExampleAudioURL *string         `json:"example_audio_url"`
-	Position        int             `json:"position"`
+	ID        string          `json:"id"`
+	Text      string          `json:"text"`
+	Syllables json.RawMessage `json:"syllables"`
+	Position  int             `json:"position"`
 }
 
 type Session struct {
