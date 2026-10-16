@@ -146,6 +146,7 @@ func (s *Service) SubmitAnswer(ctx context.Context, userID, sessionID string, re
 
 	answer := Answer{
 		QuestionID:       rec.QuestionID,
+		Type:             key.Type,
 		Status:           rec.Status,
 		SelectedOptionID: rec.SelectedOptionID,
 		AnswerText:       rec.AnswerText,

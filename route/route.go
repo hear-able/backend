@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	accessTokenTTL  = 15 * time.Minute
+	accessTokenTTL  = 30 * time.Minute
 	refreshTokenTTL = 30 * 24 * time.Hour
 
 	jsonBodyLimit  = 1 << 20

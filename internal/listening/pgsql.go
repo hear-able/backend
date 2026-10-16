@@ -58,7 +58,7 @@ const (
 		WHERE s.id = $1`
 
 	queryListAnswers = `
-		SELECT a.question_id, a.status, a.selected_option_id, a.answer_text, a.is_correct, a.score,
+		SELECT a.question_id, q.type, a.status, a.selected_option_id, a.answer_text, a.is_correct, a.score,
 		       a.feedback, a.answered_at,
 		       CASE WHEN a.status = 'answered' AND q.type = 'choice' THEN
 		           (SELECT co.id FROM choice_options co WHERE co.question_id = a.question_id AND co.is_correct LIMIT 1)

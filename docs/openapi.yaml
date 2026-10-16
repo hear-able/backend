@@ -6,7 +6,7 @@ info:
     REST API for Hear-able, a listening and speaking practice app for hearing-aid users.
 
     **Authentication.** `POST /v1/auth/login` (or `/register`) returns a short-lived JWT
-    `access_token` (15 minutes) and an opaque `refresh_token` (30 days). Send the access token as
+    `access_token` (30 minutes) and an opaque `refresh_token` (30 days). Send the access token as
     `Authorization: Bearer <token>`. Exchange the refresh token at `/v1/auth/refresh`; each refresh
     token can be used **once** (it is rotated). Reusing an old refresh token revokes every refresh
     token of that user.
@@ -134,7 +134,7 @@ paths:
       operationId: logout
       tags: [Auth]
       summary: Revoke a refresh token
-      description: Idempotent. Discard the access token on the client; it expires within 15 minutes.
+      description: Idempotent. Discard the access token on the client; it expires within 30 minutes.
       requestBody:
         required: true
         content:
@@ -612,7 +612,7 @@ components:
         access_token: { type: string }
         refresh_token: { type: string }
         token_type: { type: string, example: Bearer }
-        expires_in: { type: integer, description: Access token lifetime in seconds, example: 900 }
+        expires_in: { type: integer, description: Access token lifetime in seconds, example: 1800 }
 
     StartSessionRequest:
       type: object
@@ -710,6 +710,7 @@ components:
       type: object
       properties:
         question_id: { type: string, format: uuid }
+        type: { type: string, enum: [choice, input], description: Type of the answered question }
         status: { type: string, enum: [answered, skipped, evaluation_failed] }
         selected_option_id: { type: string, format: uuid, nullable: true }
         answer_text: { type: string, nullable: true }

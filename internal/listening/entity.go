@@ -104,6 +104,7 @@ type Feedback struct {
 
 type Answer struct {
 	QuestionID       string    `json:"question_id"`
+	Type             string    `json:"type"`
 	Status           string    `json:"status"`
 	SelectedOptionID *string   `json:"selected_option_id"`
 	AnswerText       *string   `json:"answer_text"`

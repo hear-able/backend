@@ -179,7 +179,7 @@ func (r *Repository) ListAnswers(ctx context.Context, sessionID string) ([]Answe
 			feedback  []byte
 			correctID sql.NullString
 		)
-		if err := rows.Scan(&a.QuestionID, &a.Status, &selected, &text, &isCorrect, &score, &feedback, &a.AnsweredAt, &correctID); err != nil {
+		if err := rows.Scan(&a.QuestionID, &a.Type, &a.Status, &selected, &text, &isCorrect, &score, &feedback, &a.AnsweredAt, &correctID); err != nil {
 			return nil, fmt.Errorf("scan answer: %w", err)
 		}
 		a.SelectedOptionID = nullString(selected)
