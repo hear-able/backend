@@ -115,7 +115,7 @@ func (c *Config) applyDefaults() {
 		c.AppTimezone = "Asia/Jakarta"
 	}
 	if len(c.CORSOrigins) == 0 {
-		c.CORSOrigins = []string{"https://docs.hearable.nighttealabs.tech", "http://localhost:3000", "http://localhost:5173"}
+		c.CORSOrigins = []string{"https://docs.hearable.nighttealabs.tech", "http://localhost:3000", "http://localhost:5173", "https://hearable.nighttealabs.tech"}
 	}
 	if c.SupabaseBucket == "" {
 		c.SupabaseBucket = "audio"
