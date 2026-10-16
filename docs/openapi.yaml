@@ -1,0 +1,876 @@
+openapi: 3.0.3
+info:
+  title: Hearable API Documentation
+  version: 2.0.0
+  description: |
+    REST API for Hear-able, a listening and speaking practice app for hearing-aid users.
+
+    **Authentication.** `POST /v1/auth/login` (or `/register`) returns a short-lived JWT
+    `access_token` (15 minutes) and an opaque `refresh_token` (30 days). Send the access token as
+    `Authorization: Bearer <token>`. Exchange the refresh token at `/v1/auth/refresh`; each refresh
+    token can be used **once** (it is rotated). Reusing an old refresh token revokes every refresh
+    token of that user.
+
+    **Errors.** Every error has the shape `{"error": {"code", "message", "retryable?"}}`.
+    Messages are in Bahasa Indonesia and safe to show to users.
+
+    **Scores.** All AI scores are 0–100 and are practice feedback, **not** a clinical assessment.
+    - Listening multiple choice: graded exactly (100 or 0), no AI.
+    - Listening input questions: AI compares the answer with a trusted reference answer and accepts
+      paraphrases. `score >= 70` counts as correct.
+    - Speaking: the recording is transcribed, then AI compares the transcript with the target phrase.
+      The score reflects how recognisable the speech was to speech recognition (`kejelasan`) and how
+      complete it was (`kelengkapan`). It does **not** measure pronunciation directly.
+
+    **Difficulty levels:** 1 Pemula, 2 Dasar, 3 Menengah, 4 Mahir.
+servers:
+  - url: https://api.hearable.nighttealabs.tech
+    description: API server for Hearable
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: Auth
+  - name: Listening
+  - name: Speaking
+  - name: Progress
+  - name: System
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      operationId: healthCheck
+      tags: [System]
+      summary: Health check
+      security: []
+      responses:
+        '200':
+          description: Server is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SimpleMessage'
+
+  /v1/auth/register:
+    post:
+      operationId: register
+      tags: [Auth]
+      summary: Create an account
+      description: Rate limited per IP (10 requests/minute shared with login and refresh).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account created; the user is logged in.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/auth/refresh:
+    post:
+      operationId: refreshToken
+      tags: [Auth]
+      summary: Exchange a refresh token for a new token pair
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: New access and refresh tokens. The old refresh token is no longer valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /v1/auth/logout:
+    post:
+      operationId: logout
+      tags: [Auth]
+      summary: Revoke a refresh token
+      description: Idempotent. Discard the access token on the client; it expires within 15 minutes.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '204':
+          description: Logged out
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [Auth]
+      summary: Current user's profile
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/me/activity:
+    get:
+      operationId: getActivity
+      tags: [Progress]
+      summary: Weekly activity tracker (progress bar, day dots, streak)
+      description: |
+        Returns one Monday–Sunday week in the server's timezone (`timezone`, default Asia/Jakarta).
+        A day is **active** when at least one listening or speaking session was completed that day.
+        The weekly goal is `target_days` (5) active days. `streak_days` counts consecutive active days
+        ending today, or ending yesterday if the user hasn't practised yet today.
+      parameters:
+        - name: week_of
+          in: query
+          description: Any date inside the wanted week (YYYY-MM-DD). Defaults to today.
+          schema: { type: string, format: date, example: '2026-10-12' }
+      responses:
+        '200':
+          description: Activity summary
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Activity'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/me/history:
+    get:
+      operationId: getHistory
+      tags: [Progress]
+      summary: Practice history (listening and speaking sessions)
+      description: |
+        Newest first. Use `status=in_progress&limit=1` for the "Lanjutkan belajar" card.
+        Load full feedback with `GET /v1/listening/sessions/{id}` or `GET /v1/speaking/sessions/{id}`;
+        stored results are returned and the AI is not called again.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - name: cursor
+          in: query
+          description: '`next_cursor` from the previous page.'
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [in_progress, completed] }
+      responses:
+        '200':
+          description: One page of history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/History'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /v1/listening/modules:
+    get:
+      operationId: listListeningModules
+      tags: [Listening]
+      summary: List listening modules
+      description: An empty `modules` array means there is no content for that level yet.
+      parameters:
+        - $ref: '#/components/parameters/Difficulty'
+      responses:
+        '200':
+          description: Modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modules]
+                properties:
+                  modules:
+                    type: array
+                    items: { $ref: '#/components/schemas/ListeningModule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /v1/listening/sessions:
+    post:
+      operationId: startListeningSession
+      tags: [Listening]
+      summary: Start a listening session
+      description: Each call starts a new session, so "Coba Latihan Lagi" just calls this again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSessionRequest'
+      responses:
+        '201':
+          description: Session with its questions. Correct answers are never included.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListeningSessionDetail'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /v1/listening/sessions/{sessionID}:
+    get:
+      operationId: getListeningSession
+      tags: [Listening]
+      summary: Get a listening session (resume or review)
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Session, questions and the answers submitted so far
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListeningSessionDetail'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/listening/sessions/{sessionID}/answers:
+    post:
+      operationId: submitListeningAnswer
+      tags: [Listening]
+      summary: Answer, or skip, one question ("Periksa Jawaban" / "Lewati Soal Ini")
+      description: |
+        Send exactly one of these:
+        - `selected_option_id` for `choice` questions (graded immediately)
+        - `answer_text` for `input` questions (graded by AI, may take a few seconds)
+        - `skipped: true`
+
+        Each question can be answered once per session. If AI grading fails, the answer is saved
+        with status `evaluation_failed` and the API returns 502/503 with `retryable: true`.
+        Send the same request again to retry. Rate limited to 20 requests per minute per user.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitAnswerRequest'
+            examples:
+              choice:
+                value: { question_id: 8954dadc-780f-5cfc-8c79-cbd5cca1e2f8, selected_option_id: 093d2715-3bf0-5290-9132-067b83ffa834 }
+              input:
+                value: { question_id: 8ad686c5-6708-5c68-baaa-69456e71ccec, answer_text: selamat pagi }
+              skip:
+                value: { question_id: 8ad686c5-6708-5c68-baaa-69456e71ccec, skipped: true }
+      responses:
+        '201':
+          description: Graded answer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListeningAnswer'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/Upstream' }
+
+  /v1/listening/sessions/{sessionID}/complete:
+    post:
+      operationId: completeListeningSession
+      tags: [Listening]
+      summary: Finish a listening session ("Hasil Latihan")
+      description: Idempotent. Unanswered questions count as skipped.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Result summary, e.g. "3 dari 4 Identifikasi Benar"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, summary]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  summary: { $ref: '#/components/schemas/ListeningSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/speaking/modules:
+    get:
+      operationId: listSpeakingModules
+      tags: [Speaking]
+      summary: List speaking modules
+      parameters:
+        - $ref: '#/components/parameters/Difficulty'
+      responses:
+        '200':
+          description: Modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modules]
+                properties:
+                  modules:
+                    type: array
+                    items: { $ref: '#/components/schemas/SpeakingModule' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /v1/speaking/sessions:
+    post:
+      operationId: startSpeakingSession
+      tags: [Speaking]
+      summary: Start a speaking session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartSessionRequest'
+      responses:
+        '201':
+          description: Session with its sentences
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakingSessionDetail'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+
+  /v1/speaking/sessions/{sessionID}:
+    get:
+      operationId: getSpeakingSession
+      tags: [Speaking]
+      summary: Get a speaking session (resume or review)
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Session, sentences and the attempts so far
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakingSessionDetail'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /v1/speaking/sessions/{sessionID}/attempts:
+    post:
+      operationId: submitSpeakingAttempt
+      tags: [Speaking]
+      summary: Submit a recording for one sentence ("Periksa Suara"), or skip it
+      description: |
+        The recording is sent to the speech-to-text provider for transcription and is **never
+        stored**. Only the transcript and the feedback are saved.
+
+        - Maximum size is 10 MB. Accepted formats are webm, ogg, m4a/mp4, wav, mp3 and flac, detected from the file contents.
+        - Each sentence can be submitted once per session.
+        - If the recording can't be understood (empty transcript), or the provider fails, nothing is
+          saved. Record and upload again.
+        - Rate limited to 20 requests per minute per user.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [sentence_id]
+              properties:
+                sentence_id: { type: string, format: uuid }
+                audio:
+                  type: string
+                  format: binary
+                  description: Required unless `skipped` is `true`.
+                skipped:
+                  type: string
+                  enum: ['true']
+      responses:
+        '201':
+          description: Evaluated (or skipped) attempt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SpeakingAttempt'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '413':
+          description: Recording larger than 10 MB
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Unsupported audio format
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/Unprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '502': { $ref: '#/components/responses/Upstream' }
+        '503': { $ref: '#/components/responses/Upstream' }
+
+  /v1/speaking/sessions/{sessionID}/complete:
+    post:
+      operationId: completeSpeakingSession
+      tags: [Speaking]
+      summary: Finish a speaking session
+      description: Idempotent. Sentences with no attempt count as skipped.
+      parameters:
+        - $ref: '#/components/parameters/SessionID'
+      responses:
+        '200':
+          description: Result summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, summary]
+                properties:
+                  session: { $ref: '#/components/schemas/Session' }
+                  summary: { $ref: '#/components/schemas/SpeakingSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Difficulty:
+      name: difficulty
+      in: query
+      description: 1 Pemula, 2 Dasar, 3 Menengah, 4 Mahir. Omit to list all levels.
+      schema: { type: integer, minimum: 1, maximum: 4 }
+    SessionID:
+      name: sessionID
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    BadRequest:
+      description: Malformed request (invalid JSON, unknown fields, bad query parameter)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing, invalid or expired credentials
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource doesn't exist or doesn't belong to the caller
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Invalid state, e.g. the session is completed or the item was already answered
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unprocessable:
+      description: Semantically invalid input (validation failed)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Upstream:
+      description: The AI provider failed or is overloaded. `retryable` is true.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    SimpleMessage:
+      type: object
+      properties:
+        message: { type: string, example: ok }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable_entity,
+                     too_many_requests, payload_too_large, unsupported_media_type, upstream_error, internal_error]
+            message: { type: string, example: Email atau kata sandi salah. }
+            retryable: { type: boolean }
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password, accept_terms]
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 100, example: Rian, description: Nickname (Nama Panggilan) }
+        email: { type: string, format: email, example: rian@example.com }
+        password: { type: string, minLength: 8, maxLength: 72, example: rahasia123 }
+        accept_terms:
+          type: boolean
+          description: Must be true (Terms of Service and Privacy Policy consent).
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      additionalProperties: false
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      additionalProperties: false
+      properties:
+        refresh_token: { type: string }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { type: string, enum: [user, volunteer] }
+        created_at: { type: string, format: date-time }
+
+    AuthResponse:
+      type: object
+      properties:
+        user: { $ref: '#/components/schemas/User' }
+        access_token: { type: string }
+        refresh_token: { type: string }
+        token_type: { type: string, example: Bearer }
+        expires_in: { type: integer, description: Access token lifetime in seconds, example: 900 }
+
+    StartSessionRequest:
+      type: object
+      required: [module_id]
+      additionalProperties: false
+      properties:
+        module_id: { type: string, format: uuid }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        module_id: { type: string, format: uuid }
+        module_title: { type: string }
+        difficulty: { type: integer, minimum: 1, maximum: 4 }
+        difficulty_label: { type: string, example: Pemula }
+        status: { type: string, enum: [in_progress, completed] }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+
+    Progress:
+      type: object
+      description: Items answered or skipped so far, e.g. "2 dari 5 kata"
+      properties:
+        done: { type: integer }
+        total: { type: integer }
+
+    ModuleBase:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string, example: Kenali Suara }
+        title: { type: string, example: Suara di Rumah }
+        description: { type: string }
+        difficulty: { type: integer, minimum: 1, maximum: 4 }
+        difficulty_label: { type: string, example: Pemula }
+        estimated_minutes: { type: integer, example: 5 }
+
+    ListeningModule:
+      allOf:
+        - $ref: '#/components/schemas/ModuleBase'
+        - type: object
+          properties:
+            question_count: { type: integer }
+
+    SpeakingModule:
+      allOf:
+        - $ref: '#/components/schemas/ModuleBase'
+        - type: object
+          properties:
+            sentence_count: { type: integer }
+
+    ListeningQuestion:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [choice, input] }
+        prompt: { type: string, example: Dengarkan audio berikut dan pilih sumber bunyi yang tepat. }
+        position: { type: integer }
+        audio:
+          type: object
+          nullable: true
+          properties:
+            url: { type: string, format: uri }
+            duration_ms: { type: integer, nullable: true }
+            hint_text:
+              type: string
+              nullable: true
+              description: Text hint shown when the sound can't be heard clearly
+        options:
+          type: array
+          description: Only present for `choice` questions
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              text: { type: string }
+
+    ListeningFeedback:
+      type: object
+      properties:
+        criteria:
+          type: object
+          description: Only present for AI-graded input answers (each 0–100)
+          properties:
+            main_idea: { type: integer }
+            details: { type: integer }
+            relevance: { type: integer }
+        explanation: { type: string }
+        strengths: { type: array, items: { type: string } }
+        missed_points: { type: array, items: { type: string } }
+        suggestions: { type: array, items: { type: string } }
+
+    ListeningAnswer:
+      type: object
+      properties:
+        question_id: { type: string, format: uuid }
+        status: { type: string, enum: [answered, skipped, evaluation_failed] }
+        selected_option_id: { type: string, format: uuid, nullable: true }
+        answer_text: { type: string, nullable: true }
+        is_correct: { type: boolean, nullable: true }
+        score: { type: integer, minimum: 0, maximum: 100, nullable: true }
+        correct_option_id:
+          type: string
+          format: uuid
+          description: Returned for answered choice questions
+        feedback:
+          type: object
+          allOf: [{ $ref: '#/components/schemas/ListeningFeedback' }]
+          nullable: true
+        answered_at: { type: string, format: date-time }
+
+    ListeningSessionDetail:
+      type: object
+      properties:
+        session: { $ref: '#/components/schemas/Session' }
+        progress: { $ref: '#/components/schemas/Progress' }
+        questions:
+          type: array
+          items: { $ref: '#/components/schemas/ListeningQuestion' }
+        answers:
+          type: array
+          items: { $ref: '#/components/schemas/ListeningAnswer' }
+
+    SubmitAnswerRequest:
+      type: object
+      required: [question_id]
+      additionalProperties: false
+      description: Provide exactly one of `selected_option_id`, `answer_text` or `skipped`.
+      properties:
+        question_id: { type: string, format: uuid }
+        selected_option_id: { type: string, format: uuid, description: For `choice` questions }
+        answer_text: { type: string, maxLength: 2000, description: For `input` questions }
+        skipped: { type: boolean }
+
+    ListeningSummary:
+      type: object
+      properties:
+        total: { type: integer, example: 4 }
+        answered: { type: integer, example: 4 }
+        skipped: { type: integer, example: 0 }
+        correct: { type: integer, example: 3 }
+
+    Syllable:
+      type: object
+      description: |
+        A syllable chip. `{"break": true}` marks a word boundary. `stress: true` marks the
+        highlighted beat (currently the last syllable of each word).
+      properties:
+        text: { type: string, example: mat }
+        stress: { type: boolean }
+        break: { type: boolean }
+
+    Sentence:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        text: { type: string, example: Selamat Pagi }
+        syllables:
+          type: array
+          items: { $ref: '#/components/schemas/Syllable' }
+        example_audio_url: { type: string, format: uri, nullable: true }
+        position: { type: integer }
+
+    SpeakingAttempt:
+      type: object
+      properties:
+        sentence_id: { type: string, format: uuid }
+        status: { type: string, enum: [evaluated, skipped] }
+        transcript: { type: string, nullable: true }
+        score: { type: integer, minimum: 0, maximum: 100, nullable: true }
+        explanation: { type: string, nullable: true }
+        feedback:
+          type: object
+          nullable: true
+          properties:
+            criteria:
+              type: object
+              properties:
+                kejelasan: { type: integer, description: How recognisable the words were (0–100) }
+                kelengkapan: { type: integer, description: How much of the phrase was said (0–100) }
+            strengths: { type: array, items: { type: string } }
+            improvements: { type: array, items: { type: string } }
+            suggestions: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+
+    SpeakingSessionDetail:
+      type: object
+      properties:
+        session: { $ref: '#/components/schemas/Session' }
+        progress: { $ref: '#/components/schemas/Progress' }
+        sentences:
+          type: array
+          items: { $ref: '#/components/schemas/Sentence' }
+        attempts:
+          type: array
+          items: { $ref: '#/components/schemas/SpeakingAttempt' }
+
+    SpeakingSummary:
+      type: object
+      properties:
+        total: { type: integer }
+        evaluated: { type: integer }
+        skipped: { type: integer }
+        average_score: { type: integer, nullable: true }
+
+    Activity:
+      type: object
+      properties:
+        timezone: { type: string, example: Asia/Jakarta }
+        week_start: { type: string, format: date }
+        week_end: { type: string, format: date }
+        days:
+          type: array
+          description: Always 7 entries, Monday first
+          items:
+            type: object
+            properties:
+              date: { type: string, format: date }
+              weekday: { type: string, enum: [Sen, Sel, Rab, Kam, Jum, Sab, Min] }
+              sessions: { type: integer }
+              active: { type: boolean }
+        active_days: { type: integer, example: 3 }
+        target_days: { type: integer, example: 5 }
+        completed_sessions: { type: integer }
+        by_type:
+          type: object
+          properties:
+            listening: { type: integer }
+            speaking: { type: integer }
+        streak_days: { type: integer }
+
+    HistoryItem:
+      type: object
+      properties:
+        type: { type: string, enum: [listening, speaking] }
+        session_id: { type: string, format: uuid }
+        module_id: { type: string, format: uuid }
+        module_title: { type: string }
+        difficulty: { type: integer }
+        difficulty_label: { type: string }
+        status: { type: string, enum: [in_progress, completed] }
+        started_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time, nullable: true }
+        progress: { $ref: '#/components/schemas/Progress' }
+        correct:
+          type: integer
+          nullable: true
+          description: Listening only, the number of correct answers
+        average_score:
+          type: integer
+          nullable: true
+          description: Speaking only, the average score of evaluated attempts
+
+    History:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/HistoryItem' }
+        next_cursor: { type: string, nullable: true }

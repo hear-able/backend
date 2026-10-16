@@ -1,0 +1,105 @@
+name: Deployment
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: hearable-backend
+
+jobs:
+  deploy-app:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: build image
+        run: docker build -t $IMAGE_NAME .
+
+      - name: login to registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: push image
+        run: |
+          IMAGE_ID=ghcr.io/${{ github.repository_owner }}/$IMAGE_NAME
+          IMAGE_ID=$(echo $IMAGE_ID | tr '[A-Z]' '[a-z]')
+          echo "IMAGE_ID=$IMAGE_ID" >> "$GITHUB_ENV"
+          
+          docker tag $IMAGE_NAME $IMAGE_ID
+          docker push $IMAGE_ID:latest
+
+
+      - name: deploy to server
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          
+          ssh -vvv -T -i ~/.ssh/vps_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << EOF
+          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+          
+            docker pull $IMAGE_ID:latest
+          
+            docker stop $IMAGE_NAME || true
+            docker rm $IMAGE_NAME || true
+            docker run -d \
+              --name $IMAGE_NAME \
+              --restart unless-stopped \
+              -p ${{ secrets.APP_PORT }}:8080 \
+              -e DATABASE_URL='postgresql://${{ secrets.DB_USER }}:${{ secrets.DB_PASSWORD }}@${{ secrets.DB_HOST }}:${{ secrets.DB_PORT }}/${{ secrets.DB_NAME }}' \
+              -e JWT_SECRET='${{ secrets.JWT_SECRET }}' \
+              -e OPENAI_API_KEY='${{ secrets.OPENAI_API_KEY }}' \
+              -e APP_TIMEZONE=Asia/Jakarta \
+              $IMAGE_ID:latest
+          EOF
+
+  deploy-docs:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: build docs image
+        run: docker build -t hearable-docs ./docs
+
+      - name: login to registry
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: push docs image
+        run: |
+          DOCS_IMAGE_ID=ghcr.io/${{ github.repository_owner }}/hearable-docs
+          DOCS_IMAGE_ID=$(echo $DOCS_IMAGE_ID | tr '[A-Z]' '[a-z]')
+          echo "DOCS_IMAGE_ID=$DOCS_IMAGE_ID" >> "$GITHUB_ENV"
+          
+          docker tag hearable-docs $DOCS_IMAGE_ID
+          docker push $DOCS_IMAGE_ID:latest
+
+      - name: deploy docs to server
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/vps_key
+          chmod 600 ~/.ssh/vps_key
+          
+          ssh-keyscan -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+          
+          ssh -vvv -T -i ~/.ssh/vps_key "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" << EOF
+          echo "${{ secrets.GHCR_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+          
+            docker pull $DOCS_IMAGE_ID:latest
+          
+            docker stop hearable-docs || true
+            docker rm hearable-docs || true
+            docker run -d \
+              --name hearable-docs \
+              --restart unless-stopped \
+              -p ${{ secrets.DOCS_PORT }}:8080 \
+              $DOCS_IMAGE_ID:latest
+          EOF

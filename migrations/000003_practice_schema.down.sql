@@ -1,0 +1,14 @@
+DROP TABLE IF EXISTS speaking_session_comments;
+DROP TABLE IF EXISTS speaking_sessions;
+DROP TABLE IF EXISTS speaking_module_sentences;
+DROP TABLE IF EXISTS speaking_modules;
+DROP TABLE IF EXISTS sentences;
+DROP TABLE IF EXISTS listening_session_answers;
+DROP TABLE IF EXISTS listening_sessions;
+DROP TABLE IF EXISTS listening_module_questions;
+DROP TABLE IF EXISTS choice_options;
+DROP TABLE IF EXISTS input_questions;
+DROP TABLE IF EXISTS choice_questions;
+DROP TABLE IF EXISTS questions;
+DROP TABLE IF EXISTS listening_modules;
+DROP TABLE IF EXISTS audios;
